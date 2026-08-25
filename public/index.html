@@ -2046,6 +2046,11 @@ function isCloudLoggedIn() {
   return !!(cloud.token && cloud.email);
 }
 
+function isCloudConfigured() {
+  // localStorage 里存过 serverUrl（即使是空字符串表示同源）即视为已配置
+  return localStorage.getItem(CLOUD_KEY_URL) !== null;
+}
+
 function cloudHeaders(json) {
   const h = { 'Authorization': 'Bearer ' + cloud.token };
   if (json) h['Content-Type'] = 'application/json';
@@ -2215,7 +2220,7 @@ function scheduleCloudSync() {
 function updateSyncBadge() {
   const badges = document.querySelectorAll('#sync-badge-top, #sync-badge-inline');
   let text, cls;
-  if (!cloud.serverUrl) { text = '未连接'; cls = 'sync-badge sync-off'; }
+  if (!isCloudConfigured()) { text = '未连接'; cls = 'sync-badge sync-off'; }
   else if (!isCloudLoggedIn()) { text = '未登录'; cls = 'sync-badge sync-off'; }
   else {
     switch (cloud.syncStatus) {
@@ -2232,7 +2237,7 @@ function renderCloudSync() {
   const container = document.getElementById('cloud-sync-content');
   if (!container) return;
 
-  if (!cloud.serverUrl) {
+  if (!isCloudConfigured()) {
     container.innerHTML = `
       <div class="cloud-field">
         <label>服务器地址</label>
@@ -2246,10 +2251,11 @@ function renderCloudSync() {
         若已把整个小账本部署到 Vercel 等同源平台，直接留空点击「连接服务器」即可。
       </div>`;
   } else if (!isCloudLoggedIn()) {
+    const serverLabel = cloud.serverUrl || '当前网址（同源）';
     container.innerHTML = `
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap">
         <span class="sync-badge sync-on">已连接</span>
-        <span style="font-size:11px;color:var(--brown-l);word-break:break-all">${cloud.serverUrl}</span>
+        <span style="font-size:11px;color:var(--brown-l);word-break:break-all">${serverLabel}</span>
         <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:4px 10px" onclick="disconnectCloud()">断开</button>
       </div>
       <div class="toggle-group" style="margin-bottom:14px">
