@@ -1872,10 +1872,18 @@ function cloudHeaders(json) {
   return h;
 }
 
+// Base URL for API calls. Empty serverUrl means same-origin (e.g. Vercel deploy),
+// so we use the current page origin.
+function cloudBase() {
+  if (cloud.serverUrl) return cloud.serverUrl.replace(/\/$/, '');
+  const o = window.location.origin;
+  return (o && o !== 'null') ? o : '';
+}
+
 async function cloudRegister(email, password) {
-  if (!cloud.serverUrl) { showToast('请先设置服务器地址'); return false; }
+  if (!cloudBase()) { showToast('请先设置服务器地址'); return false; }
   try {
-    const res = await fetch(cloud.serverUrl + '/api/register', {
+    const res = await fetch(cloudBase() + '/api/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -1898,9 +1906,9 @@ async function cloudRegister(email, password) {
 }
 
 async function cloudLogin(email, password) {
-  if (!cloud.serverUrl) { showToast('请先设置服务器地址'); return false; }
+  if (!cloudBase()) { showToast('请先设置服务器地址'); return false; }
   try {
-    const res = await fetch(cloud.serverUrl + '/api/login', {
+    const res = await fetch(cloudBase() + '/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -1936,7 +1944,7 @@ function cloudLogout() {
 async function cloudVerifyToken() {
   if (!isCloudLoggedIn()) return false;
   try {
-    const res = await fetch(cloud.serverUrl + '/api/verify', { headers: cloudHeaders() });
+    const res = await fetch(cloudBase() + '/api/verify', { headers: cloudHeaders() });
     if (!res.ok) { cloudLogout(); return false; }
     return true;
   } catch (e) { return false; }
@@ -1947,7 +1955,7 @@ async function cloudSyncPush() {
   cloud.syncStatus = 'syncing';
   updateSyncBadge();
   try {
-    const res = await fetch(cloud.serverUrl + '/api/data', {
+    const res = await fetch(cloudBase() + '/api/data', {
       method: 'POST',
       headers: cloudHeaders(true),
       body: JSON.stringify({ data: state }),
@@ -1975,7 +1983,7 @@ async function cloudSyncPull() {
   cloud.syncStatus = 'syncing';
   updateSyncBadge();
   try {
-    const res = await fetch(cloud.serverUrl + '/api/data', { headers: cloudHeaders() });
+    const res = await fetch(cloudBase() + '/api/data', { headers: cloudHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || '获取数据失败');
@@ -2048,14 +2056,14 @@ function renderCloudSync() {
     container.innerHTML = `
       <div class="cloud-field">
         <label>服务器地址</label>
-        <input type="url" class="cloud-input" id="cloud-url-input" placeholder="https://your-server.com">
+        <input type="url" class="cloud-input" id="cloud-url-input" placeholder="https://your-server.com（部署到Vercel等同源平台可留空）">
       </div>
       <button class="btn btn-primary btn-block" onclick="connectCloud()">
         <svg><use href="#i-link"/></svg>连接服务器
       </button>
       <div style="font-size:12px;color:var(--brown-l);margin-top:10px;line-height:1.6">
         输入云端服务器地址以启用账号登录和跨设备同步。<br>
-        首次使用请参考「云端同步设置指南」部署服务器。
+        若已把整个小账本部署到 Vercel 等同源平台，直接留空点击「连接服务器」即可。
       </div>`;
   } else if (!isCloudLoggedIn()) {
     container.innerHTML = `
@@ -2106,7 +2114,18 @@ function renderCloudSync() {
 
 function connectCloud() {
   const url = document.getElementById('cloud-url-input').value.trim();
-  if (!url) { showToast('请输入服务器地址'); return; }
+  // Empty URL = same-origin deploy (e.g. Vercel). Only allow when page has a real origin.
+  if (!url) {
+    const o = window.location.origin;
+    if (o && o !== 'null') {
+      cloud.serverUrl = '';
+      localStorage.setItem(CLOUD_KEY_URL, '');
+      showToast('已使用当前网址（同源）同步');
+      renderCloudSync();
+      return;
+    }
+    showToast('请输入服务器地址'); return;
+  }
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     showToast('地址需以 http:// 或 https:// 开头'); return;
   }

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "buildCommand": "npm install",
+  "outputDirectory": ".",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 10,
+      "includeFiles": "app.js, db.js, package.json"
+    }
+  }
+}
