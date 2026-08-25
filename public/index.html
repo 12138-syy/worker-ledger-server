@@ -2020,8 +2020,20 @@ const CLOUD_KEY_TOKEN = 'cloudToken';
 const CLOUD_KEY_EMAIL = 'cloudEmail';
 const CLOUD_KEY_LASTSYNC = 'cloudLastSync';
 
+// 默认云端服务器：部署在 Sealos 北京节点，国内可访问。
+// 本地双击打开 file:// 时自动连这里；部署到该站本身时则走同源（空地址）。
+const DEFAULT_CLOUD_URL = 'https://rtsybmkpuovg.sealosbja.site';
+
+function resolveDefaultServerUrl() {
+  const stored = localStorage.getItem(CLOUD_KEY_URL);
+  if (stored !== null) return stored; // 已设置过（含空字符串=同源/已断开）
+  const o = window.location.origin;
+  if (o && o !== 'null' && o.indexOf('sealosbja.site') !== -1) return ''; // 站点本身→同源
+  return DEFAULT_CLOUD_URL;
+}
+
 let cloud = {
-  serverUrl: localStorage.getItem(CLOUD_KEY_URL) || '',
+  serverUrl: resolveDefaultServerUrl(),
   token: localStorage.getItem(CLOUD_KEY_TOKEN) || '',
   email: localStorage.getItem(CLOUD_KEY_EMAIL) || '',
   syncStatus: 'idle',
@@ -2307,7 +2319,7 @@ function disconnectCloud() {
   cloud.serverUrl = '';
   cloud.token = '';
   cloud.email = '';
-  localStorage.removeItem(CLOUD_KEY_URL);
+  localStorage.setItem(CLOUD_KEY_URL, ''); // 存空而非删除，保持"已断开"意图
   localStorage.removeItem(CLOUD_KEY_TOKEN);
   localStorage.removeItem(CLOUD_KEY_EMAIL);
   localStorage.removeItem(CLOUD_KEY_LASTSYNC);
