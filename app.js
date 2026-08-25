@@ -83,9 +83,27 @@ function createApp() {
     res.json({ status: 'ok', ...info });
   });
 
-  // Fallback to index.html for SPA
-  app.get('*', (req, res) => {
+  // SPA fallback for non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(__dirname, 'index.html'));
+  });
+
+  // 404 handler for unmatched API routes
+  app.use((req, res) => {
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'API endpoint not found', path: req.path });
+    }
+    res.status(404).send('Not found');
+  });
+
+  // Error handler: return JSON so Vercel logs show the real message
+  app.use((err, req, res, next) => {
+    console.error('Express error:', err);
+    res.status(err.status || 500).json({
+      error: err.message || 'Internal Server Error',
+      path: req.path,
+    });
   });
 
   return app;

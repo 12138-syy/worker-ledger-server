@@ -1,14 +1,18 @@
 {
   "version": 2,
-  "buildCommand": "npm install",
-  "outputDirectory": ".",
   "functions": {
     "api/index.js": {
       "maxDuration": 10,
-      "includeFiles": "app.js, db.js, package.json"
+      "includeFiles": [
+        "app.js",
+        "db.js",
+        "package.json",
+        "index.html",
+        "public/index.html"
+      ]
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" }
+    { "source": "/api/(.*)", "destination": "/api/index" }
   ]
 }
