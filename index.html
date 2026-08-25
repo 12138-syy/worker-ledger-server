@@ -386,6 +386,35 @@ input[type=number]::-webkit-inner-spin-button{display:none}
   .chip-grid{grid-template-columns:repeat(3,1fr)}
   .grid-3{grid-template-columns:1fr}
 }
+
+/* ===== Recent records: grouped by date + calendar ===== */
+.recent-toggle{margin-left:auto;display:flex;gap:4px}
+.recent-toggle .toggle-btn{padding:4px 11px;font-size:12px;border-radius:8px;background:var(--mint-l);color:var(--mint-d);border:1px solid transparent;font-weight:600;cursor:pointer}
+.recent-toggle .toggle-btn.active{background:var(--mint);color:#fff}
+.date-group{margin-top:4px}
+.date-group-head{display:flex;justify-content:space-between;align-items:baseline;padding:10px 2px 2px}
+.dg-date{font-size:13px;font-weight:700;color:var(--brown-d)}
+.dg-sum{font-size:12px;color:var(--brown-l)}
+.recent-more{text-align:center;padding:10px;font-size:12px;color:var(--mint-d);font-weight:600;cursor:pointer}
+.empty-hint{text-align:center;padding:22px;color:var(--brown-l);font-size:13px}
+
+/* Calendar */
+.cal-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:2px 0 12px}
+.cal-title{font-size:14px;font-weight:700;color:var(--brown-d);min-width:96px;text-align:center}
+.cal-arrow{width:30px;height:30px;border-radius:8px;border:1px solid var(--border2);background:var(--card2);font-size:18px;line-height:1;color:var(--brown-d);cursor:pointer}
+.cal-arrow:hover{background:var(--mint-l)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-weekdays{margin-bottom:4px}
+.cal-weekdays .cal-cell{color:var(--brown-l);font-size:11px;font-weight:600;background:transparent}
+.cal-cell{padding:6px 2px;text-align:center;font-size:12px;color:var(--brown-d);border-radius:8px;min-height:38px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.cal-empty{visibility:hidden}
+.cal-has{background:var(--mint-l);cursor:pointer;border:1px solid var(--mint)}
+.cal-has:hover{background:var(--mint)}
+.cal-has:hover .cal-day{color:#fff}
+.cal-has:hover .cal-amt{color:#fff !important}
+.cal-day{font-weight:600;line-height:1.1}
+.cal-amt{font-size:10px;font-weight:700;line-height:1.1}
+#cal-detail{margin-top:10px}
 </style>
 </head>
 <body>
@@ -528,7 +557,10 @@ input[type=number]::-webkit-inner-spin-button{display:none}
   <div class="card">
     <div class="card-title">
       <svg><use href="#i-clock"/></svg>最近记录
-      <span class="more" onclick="switchPage('account')">记一笔 →</span>
+      <div class="recent-toggle">
+        <button class="toggle-btn active" data-view="list" onclick="setRecentView('list')">按日期</button>
+        <button class="toggle-btn" data-view="calendar" onclick="setRecentView('calendar')">日历</button>
+      </div>
     </div>
     <div id="recent-list"></div>
   </div>
@@ -936,6 +968,8 @@ let currentRecordType = 'expense';
 let currentCategory = null;
 let currentAmount = '';
 let currentMonth = null; // YYYY-MM
+let currentRecentView = 'list'; // 'list' | 'calendar'
+let currentCalMonth = null; // YYYY-MM for calendar
 let modalCallback = null;
 
 // ============================================================
@@ -1247,17 +1281,12 @@ function renderHome() {
   document.getElementById('stat-net').textContent = (monthly.net >= 0 ? '+' : '') + fmtMoney2(monthly.net);
   document.getElementById('stat-net').className = 'stat-value ' + (monthly.net >= 0 ? 'income' : 'expense');
 
-  // Recent records
-  const recent = getRecentRecords(4);
-  const list = document.getElementById('recent-list');
-  if (recent.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--brown-l);font-size:13px">还没有记录，去「记一笔」吧</div>';
-  } else {
-    list.innerHTML = recent.map(r => renderRecordItem(r)).join('');
-  }
+  // Recent records (grouped by date / calendar)
+  renderRecent();
 }
 
-function renderRecordItem(r) {
+function renderRecordItem(r, showDateLabel) {
+  if (showDateLabel === undefined) showDateLabel = true;
   const cats = CATS[r.type];
   const cat = cats.find(c => c.name === r.category) || cats[cats.length - 1];
   const isIncome = r.type === 'income';
@@ -1280,10 +1309,149 @@ function renderRecordItem(r) {
       </div>
       <div>
         <div class="record-amt ${r.type}">${sign}${fmtMoney2(r.amount)}</div>
-        <div class="record-time">${dateLabel}</div>
+        ${showDateLabel ? `<div class="record-time">${dateLabel}</div>` : ''}
         ${workTime ? `<div class="record-worktime">≈ ${workTime}</div>` : ''}
       </div>
     </div>`;
+}
+
+// ============================================================
+// Recent records: grouped-by-date list + calendar
+// ============================================================
+function dateHeadLabel(dateStr) {
+  const today = fmtDate(new Date());
+  const yest = fmtDate(new Date(Date.now() - 86400000));
+  if (dateStr === today) return '今天';
+  if (dateStr === yest) return '昨天';
+  const d = new Date(dateStr + 'T00:00:00');
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+
+function groupRecordsByDate(records) {
+  const map = {};
+  records.forEach(r => {
+    (map[r.date] = map[r.date] || []).push(r);
+  });
+  return Object.keys(map)
+    .sort((a, b) => b.localeCompare(a)) // newest date first
+    .map(date => {
+      const items = map[date].sort((a, b) => b.id - a.id);
+      let exp = 0, inc = 0;
+      items.forEach(r => r.type === 'expense' ? (exp += r.amount) : (inc += r.amount));
+      return { date, items, exp, inc };
+    });
+}
+
+function renderRecent() {
+  if (currentRecentView === 'calendar') renderRecentCalendar();
+  else renderRecentList();
+}
+
+function setRecentView(mode) {
+  currentRecentView = mode;
+  document.querySelectorAll('.recent-toggle .toggle-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === mode);
+  });
+  renderRecent();
+}
+
+function renderRecentList() {
+  const groups = groupRecordsByDate(state.records);
+  const list = document.getElementById('recent-list');
+  if (groups.length === 0) {
+    list.innerHTML = '<div class="empty-hint">还没有记录，去「记一笔」吧</div>';
+    return;
+  }
+  const MAX_GROUPS = 15;
+  const shown = groups.slice(0, MAX_GROUPS);
+  let html = shown.map(g => {
+    const head = `${dateHeadLabel(g.date)} · ${g.date.slice(5).replace('-', '/')}`;
+    const sum = `支出 ¥${fmtMoney(g.exp)}` + (g.inc > 0 ? ` · 收入 ¥${fmtMoney(g.inc)}` : '');
+    return `<div class="date-group">
+      <div class="date-group-head">
+        <span class="dg-date">${head}</span>
+        <span class="dg-sum">${sum}</span>
+      </div>
+      ${g.items.map(r => renderRecordItem(r, false)).join('')}
+    </div>`;
+  }).join('');
+  if (groups.length > shown.length) {
+    html += `<div class="recent-more" onclick="setRecentView('calendar')">还有 ${groups.length - shown.length} 天更早记录，点「日历」查看 →</div>`;
+  }
+  list.innerHTML = html;
+}
+
+function renderRecentCalendar() {
+  const wrap = document.getElementById('recent-list');
+  if (!currentCalMonth) {
+    const n = new Date();
+    currentCalMonth = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
+  }
+  const ym = currentCalMonth;
+  const [yy, mm] = ym.split('-').map(Number);
+
+  const dayMap = {};
+  state.records.forEach(r => {
+    if (r.date.startsWith(ym)) (dayMap[r.date] = dayMap[r.date] || []).push(r);
+  });
+
+  const first = new Date(yy, mm - 1, 1);
+  const startWeekday = (first.getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(yy, mm, 0).getDate();
+
+  let cells = '';
+  for (let i = 0; i < startWeekday; i++) cells += '<div class="cal-cell cal-empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${ym}-${String(d).padStart(2, '0')}`;
+    const recs = dayMap[ds] || [];
+    let exp = 0, inc = 0;
+    recs.forEach(r => r.type === 'expense' ? (exp += r.amount) : (inc += r.amount));
+    const has = recs.length > 0;
+    let color = 'var(--brown-l)';
+    if (exp > 0 && inc > 0) color = 'var(--brown-d)';
+    else if (exp > 0) color = 'var(--coral)';
+    else if (inc > 0) color = 'var(--mint-d)';
+    const amtTxt = has ? (exp > 0 ? '¥' + fmtMoney(exp) : '¥' + fmtMoney(inc)) : '';
+    cells += `<div class="cal-cell ${has ? 'cal-has' : ''}" ${has ? `onclick="showCalDay('${ds}')"` : ''}>
+       <div class="cal-day">${d}</div>
+       ${has ? `<div class="cal-amt" style="color:${color}">${amtTxt}</div>` : ''}
+     </div>`;
+  }
+
+  const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+  wrap.innerHTML = `
+    <div class="cal-nav">
+      <button class="cal-arrow" onclick="changeCalMonth(-1)">‹</button>
+      <span class="cal-title">${yy}年${mm}月</span>
+      <button class="cal-arrow" onclick="changeCalMonth(1)">›</button>
+    </div>
+    <div class="cal-grid cal-weekdays">${weekdays.map(w => `<div class="cal-cell">${w}</div>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    <div id="cal-detail"></div>`;
+}
+
+function changeCalMonth(delta) {
+  const [yy, mm] = currentCalMonth.split('-').map(Number);
+  const d = new Date(yy, mm - 1 + delta, 1);
+  currentCalMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  renderRecentCalendar();
+}
+
+function showCalDay(dateStr) {
+  const el = document.getElementById('cal-detail');
+  if (!el) return;
+  const recs = state.records.filter(r => r.date === dateStr).sort((a, b) => b.id - a.id);
+  if (recs.length === 0) { el.innerHTML = ''; return; }
+  let exp = 0, inc = 0;
+  recs.forEach(r => r.type === 'expense' ? (exp += r.amount) : (inc += r.amount));
+  el.innerHTML = `<div class="date-group" style="margin-top:4px">
+     <div class="date-group-head">
+       <span class="dg-date">${dateHeadLabel(dateStr)} · ${dateStr.slice(5).replace('-', '/')}</span>
+       <span class="dg-sum">支出 ¥${fmtMoney(exp)}${inc > 0 ? ` · 收入 ¥${fmtMoney(inc)}` : ''}</span>
+     </div>
+     ${recs.map(r => renderRecordItem(r, false)).join('')}
+   </div>`;
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // ============================================================
