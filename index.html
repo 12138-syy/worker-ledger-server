@@ -2,7 +2,15 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#7FCDB8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="小账本">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon-192.png">
 <title>打工人小账本</title>
 <style>
 /* ===== Reset & Base ===== */
@@ -378,6 +386,19 @@ input[type=number]::-webkit-inner-spin-button{display:none}
   .progress-ring{align-self:center}
   .sim-compare{flex-direction:column}
   .sim-compare .vs{transform:rotate(90deg)}
+  /* ---- mobile polish for monthly summary & general ---- */
+  .content{max-width:100%;padding-left:12px;padding-right:12px}
+  .section-title{font-size:16px;margin-bottom:12px}
+  .card{padding:14px}
+  .stat-value{font-size:20px}
+  .month-nav{gap:10px;margin-bottom:12px}
+  .month-nav .current{font-size:15px}
+  .bar-row{gap:6px}
+  .bar-label{width:46px;font-size:12px}
+  .bar-amt{width:58px;font-size:12px}
+  .hero-card{gap:10px;padding:16px}
+  .formula-box{font-size:12px}
+  .record-amt{font-size:14px}
 }
 @media(min-width:769px){
   .bottom-tab{display:none !important}
@@ -2429,6 +2450,13 @@ function init() {
 }
 
 init();
+
+// Register PWA service worker (installable to home screen + offline shell)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
+  });
+}
 </script>
 </body>
 </html>
