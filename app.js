@@ -66,6 +66,72 @@ function createApp() {
     res.json({ valid: true, userId: req.userId, email: user?.email || '' });
   });
 
+  // ===== Forgot password (email verification code) =====
+  const nodemailer = require('nodemailer');
+
+  function getMailer() {
+    const host = process.env.SMTP_HOST;
+    const port = process.env.SMTP_PORT || 587;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (!host || !user || !pass) return null;
+    return nodemailer.createTransport({
+      host, port: Number(port), secure: Number(port) === 465,
+      auth: { user, pass },
+      tls: { rejectUnauthorized: false }
+    });
+  }
+
+  function resetCodeKey(email) { return `pwd-reset:${email.toLowerCase().trim()}`; }
+
+  app.post('/api/forgot-password-send-code', async (req, res) => {
+    const { email } = req.body;
+    if (!email || !email.includes('@')) return res.status(400).json({ error: '请输入有效的邮箱' });
+
+    const users = await db.getUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) return res.status(404).json({ error: '该邮箱未注册' });
+
+    const transport = getMailer();
+    if (!transport) return res.status(503).json({ error: '邮件服务未配置，请联系管理员设置 SMTP' });
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await db.setCode(resetCodeKey(email), code, 600);
+
+    try {
+      await transport.sendMail({
+        from: `"打工人小账本" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+        to: email,
+        subject: '【打工人小账本】密码重置验证码',
+        text: `你的密码重置验证码是：${code}，10 分钟内有效。如非本人操作，请忽略。`,
+        html: `<p>你的密码重置验证码是：<strong style="font-size:18px">${code}</strong></p><p>10 分钟内有效。如非本人操作，请忽略。</p>`
+      });
+      res.json({ sent: true });
+    } catch (e) {
+      console.error('Send mail error:', e);
+      res.status(500).json({ error: '验证码邮件发送失败，请稍后重试' });
+    }
+  });
+
+  app.post('/api/forgot-password-reset', async (req, res) => {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) return res.status(400).json({ error: '缺少参数' });
+    if (newPassword.length < 6) return res.status(400).json({ error: '密码至少6位' });
+
+    const saved = await db.getCode(resetCodeKey(email));
+    if (!saved || saved !== String(code).trim()) return res.status(400).json({ error: '验证码错误或已过期' });
+
+    const users = await db.getUsers();
+    const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+    if (idx === -1) return res.status(404).json({ error: '该邮箱未注册' });
+
+    users[idx].password = bcrypt.hashSync(newPassword, 10);
+    await db.saveUsers(users);
+    await db.deleteCode(resetCodeKey(email));
+
+    res.json({ success: true });
+  });
+
   app.get('/api/data', auth, async (req, res) => {
     const userData = await db.getUserData(req.userId);
     res.json({ data: userData?.data || null, updatedAt: userData?.updatedAt || null });

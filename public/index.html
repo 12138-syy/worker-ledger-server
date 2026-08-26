@@ -154,6 +154,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 .btn svg{width:16px;height:16px}
 .btn-sm{padding:6px 14px;min-height:32px;font-size:13px}
 .btn-block{display:flex;width:100%}
+.btn:disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
 
 /* ===== Cloud Sync ===== */
 .sync-badge{
@@ -375,37 +376,54 @@ input[type=number]::-webkit-inner-spin-button{display:none}
   :root{--gap:10px}
   .sidebar{display:none}
   .bottom-tab{display:flex}
-  .content{padding:14px;padding-bottom:calc(var(--tabbar-h) + 14px)}
+  .content{padding:12px;padding-bottom:calc(var(--tabbar-h) + 14px)}
   .grid-2{grid-template-columns:1fr}
   .grid-3{grid-template-columns:1fr 1fr}
   .chip-grid{grid-template-columns:repeat(4,1fr)}
-  .hero-pig{width:70px;height:56px}
-  .hero-amount{font-size:24px}
-  .hourly-result .value{font-size:34px}
+  .hero-pig{width:64px;height:52px}
+  .hero-amount{font-size:22px}
+  .hourly-result .value{font-size:32px}
   .progress-ring-wrap{flex-direction:column;align-items:stretch}
   .progress-ring{align-self:center}
   .sim-compare{flex-direction:column}
   .sim-compare .vs{transform:rotate(90deg)}
   /* ---- mobile polish for monthly summary & general ---- */
-  .content{max-width:100%;padding-left:12px;padding-right:12px}
-  .section-title{font-size:16px;margin-bottom:12px}
-  .card{padding:14px}
-  .stat-value{font-size:20px}
-  .month-nav{gap:10px;margin-bottom:12px}
-  .month-nav .current{font-size:15px}
-  .bar-row{gap:6px}
-  .bar-label{width:46px;font-size:12px}
-  .bar-amt{width:58px;font-size:12px}
-  .hero-card{gap:10px;padding:16px}
-  .formula-box{font-size:12px}
+  .content{max-width:100%;padding-left:10px;padding-right:10px}
+  .section-title{font-size:15px;margin-bottom:10px}
+  .card{padding:12px}
+  .stat-card{padding:10px}
+  .stat-label{font-size:11px;margin-bottom:2px}
+  .stat-value{font-size:17px}
+  .month-nav{gap:6px;margin-bottom:10px}
+  .month-nav .btn-ghost{padding:6px;font-size:14px}
+  .month-nav .current{font-size:14px;min-width:96px;text-align:center}
+  .bar-row{gap:5px;padding:4px 0}
+  .bar-label{width:40px;font-size:11px}
+  .bar-track{height:16px}
+  .bar-amt{width:50px;font-size:11px}
+  .hero-card{gap:10px;padding:14px}
+  .formula-box{font-size:12px;padding:10px}
   .record-amt{font-size:14px}
+  /* summary stats: 3 compact columns */
+  .summary-stats.grid-3{grid-template-columns:repeat(3,1fr);gap:8px}
+  .summary-stats .stat-card{padding:10px 4px;text-align:center}
+  .summary-stats .stat-value{font-size:16px}
+  .summary-stats .stat-label{font-size:11px}
+  .card-title{font-size:13px;margin-bottom:10px}
+  .chart-wrap{padding:0}
 }
 @media(min-width:769px){
   .bottom-tab{display:none !important}
 }
 @media(max-width:380px){
   .chip-grid{grid-template-columns:repeat(3,1fr)}
-  .grid-3{grid-template-columns:1fr}
+  .grid-3{grid-template-columns:1fr 1fr}
+  .summary-stats.grid-3{grid-template-columns:repeat(3,1fr);gap:6px}
+  .summary-stats .stat-card{padding:8px 3px}
+  .summary-stats .stat-value{font-size:14px}
+  .summary-stats .stat-label{font-size:10px}
+  .bar-label{width:36px}
+  .bar-amt{width:46px}
 }
 
 /* ===== Recent records: grouped by date + calendar ===== */
@@ -705,7 +723,7 @@ input[type=number]::-webkit-inner-spin-button{display:none}
     <button class="btn-ghost" id="month-next"><svg><use href="#i-arrow-right"/></svg></button>
   </div>
 
-  <div class="grid grid-3" style="margin-bottom:14px">
+  <div class="grid grid-3 summary-stats" style="margin-bottom:14px">
     <div class="stat-card"><div class="stat-label">总收入</div><div class="stat-value income" id="sum-income">¥0</div></div>
     <div class="stat-card"><div class="stat-label">总支出</div><div class="stat-value expense" id="sum-expense">¥0</div></div>
     <div class="stat-card"><div class="stat-label">结余</div><div class="stat-value" id="sum-net">¥0</div></div>
@@ -2062,6 +2080,7 @@ let cloud = {
 };
 
 let syncDebounceTimer = null;
+let cloudAuthMode = 'login'; // 'login' | 'register' | 'forgot'
 
 function isCloudLoggedIn() {
   return !!(cloud.token && cloud.email);
@@ -2273,15 +2292,33 @@ function renderCloudSync() {
       </div>`;
   } else if (!isCloudLoggedIn()) {
     const serverLabel = cloud.serverUrl || '当前网址（同源）';
-    container.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap">
-        <span class="sync-badge sync-on">已连接</span>
-        <span style="font-size:11px;color:var(--brown-l);word-break:break-all">${serverLabel}</span>
-        <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:4px 10px" onclick="disconnectCloud()">断开</button>
+    const isForgot = cloudAuthMode === 'forgot';
+    const authForm = isForgot ? `
+      <div class="cloud-field">
+        <label>注册邮箱</label>
+        <input type="email" class="cloud-input" id="cloud-email" placeholder="your@email.com">
       </div>
+      <div class="cloud-field">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label>验证码</label>
+          <button class="btn btn-ghost btn-sm" id="btn-send-code" onclick="sendResetCode()">获取验证码</button>
+        </div>
+        <input type="text" class="cloud-input" id="cloud-code" placeholder="6位验证码" maxlength="6" inputmode="numeric">
+      </div>
+      <div class="cloud-field">
+        <label>新密码</label>
+        <input type="password" class="cloud-input" id="cloud-password" placeholder="至少6位">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="doResetPassword()">
+        <svg><use href="#i-cloud"/></svg>重置密码
+      </button>
+      <div style="text-align:center;margin-top:10px">
+        <a href="javascript:void(0)" style="font-size:13px;color:var(--mint-d)" onclick="switchCloudTab('login')">返回登录</a>
+      </div>
+    ` : `
       <div class="toggle-group" style="margin-bottom:14px">
-        <button class="toggle-btn active" id="ctab-login" onclick="switchCloudTab('login')">登录</button>
-        <button class="toggle-btn" id="ctab-register" onclick="switchCloudTab('register')">注册</button>
+        <button class="toggle-btn ${cloudAuthMode === 'login' ? 'active' : ''}" id="ctab-login" onclick="switchCloudTab('login')">登录</button>
+        <button class="toggle-btn ${cloudAuthMode === 'register' ? 'active' : ''}" id="ctab-register" onclick="switchCloudTab('register')">注册</button>
       </div>
       <div class="cloud-field">
         <label>邮箱</label>
@@ -2291,9 +2328,20 @@ function renderCloudSync() {
         <label>密码</label>
         <input type="password" class="cloud-input" id="cloud-password" placeholder="至少6位">
       </div>
-      <button class="btn btn-primary btn-block" id="cloud-submit" onclick="doCloudAuth('login')">
-        <svg><use href="#i-cloud"/></svg>登录
-      </button>`;
+      <div style="text-align:right;margin:-6px 0 10px">
+        <a href="javascript:void(0)" style="font-size:12px;color:var(--brown-l)" onclick="switchCloudTab('forgot')">忘记密码？</a>
+      </div>
+      <button class="btn btn-primary btn-block" id="cloud-submit" onclick="doCloudAuth('${cloudAuthMode}')">
+        <svg><use href="#i-cloud"/></svg>${cloudAuthMode === 'login' ? '登录' : '注册'}
+      </button>
+    `;
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <span class="sync-badge sync-on">已连接</span>
+        <span style="font-size:11px;color:var(--brown-l);word-break:break-all">${serverLabel}</span>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:4px 10px" onclick="disconnectCloud()">断开</button>
+      </div>
+      ${authForm}`;
   } else {
     const syncTime = cloud.lastSync ? new Date(cloud.lastSync).toLocaleString('zh-CN', {
       month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
@@ -2355,12 +2403,8 @@ function disconnectCloud() {
 }
 
 function switchCloudTab(tab) {
-  const isLogin = tab === 'login';
-  document.getElementById('ctab-login').classList.toggle('active', isLogin);
-  document.getElementById('ctab-register').classList.toggle('active', !isLogin);
-  const btn = document.getElementById('cloud-submit');
-  btn.innerHTML = isLogin ? '<svg><use href="#i-cloud"/></svg>登录' : '<svg><use href="#i-cloud"/></svg>注册';
-  btn.onclick = () => doCloudAuth(tab);
+  cloudAuthMode = tab;
+  renderCloudSync();
 }
 
 async function doCloudAuth(mode) {
@@ -2370,6 +2414,55 @@ async function doCloudAuth(mode) {
   if (password.length < 6) { showToast('密码至少6位'); return; }
   if (mode === 'register') await cloudRegister(email, password);
   else await cloudLogin(email, password);
+}
+
+async function sendResetCode() {
+  const email = document.getElementById('cloud-email').value.trim();
+  if (!email || !email.includes('@')) { showToast('请输入有效的邮箱'); return; }
+  const btn = document.getElementById('btn-send-code');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '发送中…';
+  try {
+    const res = await fetch(cloudBase() + '/api/forgot-password-send-code', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '发送失败');
+    showToast('验证码已发送，请查收邮件');
+    let sec = 60;
+    btn.textContent = `${sec}s 后重发`;
+    const timer = setInterval(() => {
+      sec--;
+      if (sec <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '获取验证码'; }
+      else btn.textContent = `${sec}s 后重发`;
+    }, 1000);
+  } catch (e) {
+    showToast(e.message || '发送失败');
+    btn.disabled = false;
+    btn.textContent = '获取验证码';
+  }
+}
+
+async function doResetPassword() {
+  const email = document.getElementById('cloud-email').value.trim();
+  const code = document.getElementById('cloud-code').value.trim();
+  const newPassword = document.getElementById('cloud-password').value;
+  if (!email || !code || !newPassword) { showToast('请填写完整信息'); return; }
+  if (newPassword.length < 6) { showToast('新密码至少6位'); return; }
+  try {
+    const res = await fetch(cloudBase() + '/api/forgot-password-reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code, newPassword })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '重置失败');
+    showToast('密码重置成功，请用新密码登录');
+    switchCloudTab('login');
+  } catch (e) {
+    showToast(e.message || '重置失败');
+  }
 }
 
 // ============================================================
