@@ -2081,6 +2081,13 @@ let cloud = {
 
 let syncDebounceTimer = null;
 let cloudAuthMode = 'login'; // 'login' | 'register' | 'forgot'
+let forgotQuestion = null; // 找回密码时已查询到的安全问题
+let showSecuritySetup = false; // 登录后「设置安全问题」面板开关
+let currentSecurityQuestion = null; // 当前账号已设的安全问题（用于展示）
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
 
 function isCloudLoggedIn() {
   return !!(cloud.token && cloud.email);
@@ -2105,13 +2112,13 @@ function cloudBase() {
   return (o && o !== 'null') ? o : '';
 }
 
-async function cloudRegister(email, password) {
+async function cloudRegister(email, password, question, answer) {
   if (!cloudBase()) { showToast('请先设置服务器地址'); return false; }
   try {
     const res = await fetch(cloudBase() + '/api/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, securityQuestion: question, securityAnswer: answer }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '注册失败');
@@ -2159,6 +2166,8 @@ function cloudLogout() {
   cloud.token = '';
   cloud.email = '';
   cloud.syncStatus = 'idle';
+  showSecuritySetup = false;
+  currentSecurityQuestion = null;
   localStorage.removeItem(CLOUD_KEY_TOKEN);
   localStorage.removeItem(CLOUD_KEY_EMAIL);
   localStorage.removeItem(CLOUD_KEY_LASTSYNC);
@@ -2293,17 +2302,14 @@ function renderCloudSync() {
   } else if (!isCloudLoggedIn()) {
     const serverLabel = cloud.serverUrl || '当前网址（同源）';
     const isForgot = cloudAuthMode === 'forgot';
-    const authForm = isForgot ? `
+    const authForm = isForgot ? (forgotQuestion ? `
       <div class="cloud-field">
-        <label>注册邮箱</label>
-        <input type="email" class="cloud-input" id="cloud-email" placeholder="your@email.com">
+        <label>安全问题</label>
+        <div style="padding:10px 12px;background:#f5f2ea;border:1px solid #e6e0d4;border-radius:10px;font-size:14px;color:#5b4a3a">${escapeHtml(forgotQuestion)}</div>
       </div>
       <div class="cloud-field">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <label>验证码</label>
-          <button class="btn btn-ghost btn-sm" id="btn-send-code" onclick="sendResetCode()">获取验证码</button>
-        </div>
-        <input type="text" class="cloud-input" id="cloud-code" placeholder="6位验证码" maxlength="6" inputmode="numeric">
+        <label>你的答案</label>
+        <input type="text" class="cloud-input" id="cloud-answer" placeholder="请输入安全问题答案">
       </div>
       <div class="cloud-field">
         <label>新密码</label>
@@ -2313,9 +2319,22 @@ function renderCloudSync() {
         <svg><use href="#i-cloud"/></svg>重置密码
       </button>
       <div style="text-align:center;margin-top:10px">
+        <a href="javascript:void(0)" style="font-size:13px;color:var(--brown-l)" onclick="forgotQuestion=null;switchCloudTab('forgot')">重新输入邮箱</a>
+        <span style="font-size:13px;color:var(--brown-l);margin:0 8px">·</span>
         <a href="javascript:void(0)" style="font-size:13px;color:var(--mint-d)" onclick="switchCloudTab('login')">返回登录</a>
       </div>
     ` : `
+      <div class="cloud-field">
+        <label>注册邮箱</label>
+        <input type="email" class="cloud-input" id="cloud-email" placeholder="your@email.com">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="getSecurityQuestion()">
+        <svg><use href="#i-cloud"/></svg>下一步
+      </button>
+      <div style="text-align:center;margin-top:10px">
+        <a href="javascript:void(0)" style="font-size:13px;color:var(--mint-d)" onclick="switchCloudTab('login')">返回登录</a>
+      </div>
+    `) : `
       <div class="toggle-group" style="margin-bottom:14px">
         <button class="toggle-btn ${cloudAuthMode === 'login' ? 'active' : ''}" id="ctab-login" onclick="switchCloudTab('login')">登录</button>
         <button class="toggle-btn ${cloudAuthMode === 'register' ? 'active' : ''}" id="ctab-register" onclick="switchCloudTab('register')">注册</button>
@@ -2328,6 +2347,22 @@ function renderCloudSync() {
         <label>密码</label>
         <input type="password" class="cloud-input" id="cloud-password" placeholder="至少6位">
       </div>
+      ${cloudAuthMode === 'register' ? `
+      <div class="cloud-field">
+        <label>安全问题（用于找回密码）</label>
+        <select class="cloud-input" id="cloud-question">
+          <option value="">请选择一个问题…</option>
+          <option value="你出生的城市是哪里？">你出生的城市是哪里？</option>
+          <option value="你小学的名字是什么？">你小学的名字是什么？</option>
+          <option value="你最好朋友的昵称是什么？">你最好朋友的昵称是什么？</option>
+          <option value="你的第一只宠物的名字是什么？">你的第一只宠物的名字是什么？</option>
+          <option value="你母亲的生日（如0512）？">你母亲的生日（如0512）？</option>
+        </select>
+      </div>
+      <div class="cloud-field">
+        <label>安全问题答案</label>
+        <input type="text" class="cloud-input" id="cloud-answer" placeholder="记住你的答案">
+      </div>` : ''}
       <div style="text-align:right;margin:-6px 0 10px">
         <a href="javascript:void(0)" style="font-size:12px;color:var(--brown-l)" onclick="switchCloudTab('forgot')">忘记密码？</a>
       </div>
@@ -2342,6 +2377,35 @@ function renderCloudSync() {
         <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:4px 10px" onclick="disconnectCloud()">断开</button>
       </div>
       ${authForm}`;
+  } else if (showSecuritySetup) {
+    container.innerHTML = `
+      <div class="cloud-user-row">
+        <div class="cloud-user-avatar"><svg><use href="#i-user"/></svg></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--brown-d);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cloud.email}</div>
+          <span class="sync-badge sync-on">设置安全问题</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:4px 10px" onclick="showSecuritySetup=false;renderCloudSync()">返回</button>
+      </div>
+      ${currentSecurityQuestion ? `<div style="font-size:12px;color:var(--brown-l);margin:10px 0 4px">当前问题：${escapeHtml(currentSecurityQuestion)}</div>` : `<div style="font-size:12px;color:#c0392b;margin:10px 0 4px">尚未设置安全问题，忘记密码时将无法用此方式找回</div>`}
+      <div class="cloud-field">
+        <label>安全问题</label>
+        <select class="cloud-input" id="sec-question">
+          <option value="">请选择一个问题…</option>
+          <option value="你出生的城市是哪里？">你出生的城市是哪里？</option>
+          <option value="你小学的名字是什么？">你小学的名字是什么？</option>
+          <option value="你最好朋友的昵称是什么？">你最好朋友的昵称是什么？</option>
+          <option value="你的第一只宠物的名字是什么？">你的第一只宠物的名字是什么？</option>
+          <option value="你母亲的生日（如0512）？">你母亲的生日（如0512）？</option>
+        </select>
+      </div>
+      <div class="cloud-field">
+        <label>答案</label>
+        <input type="text" class="cloud-input" id="sec-answer" placeholder="填写答案">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="saveSecurityQuestion()">
+        <svg><use href="#i-lock"/></svg>保存
+      </button>`;
   } else {
     const syncTime = cloud.lastSync ? new Date(cloud.lastSync).toLocaleString('zh-CN', {
       month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
@@ -2361,6 +2425,11 @@ function renderCloudSync() {
         </button>
         <button class="btn btn-ghost" onclick="cloudLogout()">
           <svg><use href="#i-logout"/></svg>退出
+        </button>
+      </div>
+      <div style="margin-top:10px">
+        <button class="btn btn-outline btn-block" onclick="openSecuritySetup()">
+          <svg><use href="#i-lock"/></svg>设置安全问题
         </button>
       </div>`;
   }
@@ -2394,6 +2463,8 @@ function disconnectCloud() {
   cloud.serverUrl = '';
   cloud.token = '';
   cloud.email = '';
+  showSecuritySetup = false;
+  currentSecurityQuestion = null;
   localStorage.setItem(CLOUD_KEY_URL, ''); // 存空而非删除，保持"已断开"意图
   localStorage.removeItem(CLOUD_KEY_TOKEN);
   localStorage.removeItem(CLOUD_KEY_EMAIL);
@@ -2404,6 +2475,7 @@ function disconnectCloud() {
 
 function switchCloudTab(tab) {
   cloudAuthMode = tab;
+  if (tab === 'forgot') forgotQuestion = null;
   renderCloudSync();
 }
 
@@ -2412,56 +2484,90 @@ async function doCloudAuth(mode) {
   const password = document.getElementById('cloud-password').value;
   if (!email || !password) { showToast('请填写邮箱和密码'); return; }
   if (password.length < 6) { showToast('密码至少6位'); return; }
-  if (mode === 'register') await cloudRegister(email, password);
-  else await cloudLogin(email, password);
+  if (mode === 'register') {
+    const qEl = document.getElementById('cloud-question');
+    const aEl = document.getElementById('cloud-answer');
+    const question = qEl ? qEl.value : '';
+    const answer = aEl ? aEl.value.trim() : '';
+    if (!question || !answer) { showToast('请选择安全问题并填写答案'); return; }
+    await cloudRegister(email, password, question, answer);
+  } else await cloudLogin(email, password);
 }
 
-async function sendResetCode() {
+async function getSecurityQuestion() {
   const email = document.getElementById('cloud-email').value.trim();
   if (!email || !email.includes('@')) { showToast('请输入有效的邮箱'); return; }
-  const btn = document.getElementById('btn-send-code');
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.textContent = '发送中…';
   try {
-    const res = await fetch(cloudBase() + '/api/forgot-password-send-code', {
+    const res = await fetch(cloudBase() + '/api/forgot-password-question', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || '发送失败');
-    showToast('验证码已发送，请查收邮件');
-    let sec = 60;
-    btn.textContent = `${sec}s 后重发`;
-    const timer = setInterval(() => {
-      sec--;
-      if (sec <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '获取验证码'; }
-      else btn.textContent = `${sec}s 后重发`;
-    }, 1000);
+    if (!res.ok) throw new Error(data.error || '查询失败');
+    forgotQuestion = data.question;
+    renderCloudSync();
   } catch (e) {
-    showToast(e.message || '发送失败');
-    btn.disabled = false;
-    btn.textContent = '获取验证码';
+    showToast(e.message || '查询失败');
   }
 }
 
 async function doResetPassword() {
   const email = document.getElementById('cloud-email').value.trim();
-  const code = document.getElementById('cloud-code').value.trim();
+  const answer = document.getElementById('cloud-answer').value.trim();
   const newPassword = document.getElementById('cloud-password').value;
-  if (!email || !code || !newPassword) { showToast('请填写完整信息'); return; }
+  if (!email || !answer || !newPassword) { showToast('请填写完整信息'); return; }
   if (newPassword.length < 6) { showToast('新密码至少6位'); return; }
   try {
     const res = await fetch(cloudBase() + '/api/forgot-password-reset', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, code, newPassword })
+      body: JSON.stringify({ email, securityAnswer: answer, newPassword })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || '重置失败');
     showToast('密码重置成功，请用新密码登录');
+    forgotQuestion = null;
     switchCloudTab('login');
   } catch (e) {
     showToast(e.message || '重置失败');
+  }
+}
+
+async function openSecuritySetup() {
+  if (!cloudBase()) { showToast('请先连接服务器'); return; }
+  showSecuritySetup = true;
+  currentSecurityQuestion = null;
+  try {
+    const res = await fetch(cloudBase() + '/api/security-question', {
+      headers: { 'Authorization': 'Bearer ' + cloud.token }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) currentSecurityQuestion = data.question || null;
+  } catch (e) {
+    currentSecurityQuestion = null;
+  }
+  renderCloudSync();
+}
+
+async function saveSecurityQuestion() {
+  const qEl = document.getElementById('sec-question');
+  const aEl = document.getElementById('sec-answer');
+  const question = qEl ? qEl.value : '';
+  const answer = aEl ? aEl.value.trim() : '';
+  if (!question || !answer) { showToast('请选择安全问题并填写答案'); return; }
+  try {
+    const res = await fetch(cloudBase() + '/api/security-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cloud.token },
+      body: JSON.stringify({ securityQuestion: question, securityAnswer: answer })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '保存失败');
+    showToast('安全问题已保存');
+    showSecuritySetup = false;
+    currentSecurityQuestion = question;
+    renderCloudSync();
+  } catch (e) {
+    showToast(e.message || '保存失败');
   }
 }
 

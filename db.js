@@ -88,50 +88,6 @@ async function healthInfo() {
   return { storage: 'file', users: fileDb.users.length, dataKeys: Object.keys(fileDb.data).length };
 }
 
-// ===== Time-limited verification codes (used by forgot-password) =====
-async function setCode(key, code, ttlSeconds) {
-  if (USE_UPSTASH) {
-    // Upstash REST: /setex/<key>/<seconds>/<value>
-    const url = `${UPSTASH_URL}/setex/${encodeURIComponent(key)}/${ttlSeconds}/${encodeURIComponent(code)}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` } });
-    return res.ok;
-  }
-  initFileDb();
-  fileDb.codes = fileDb.codes || {};
-  fileDb.codes[key] = { code, expiresAt: Date.now() + ttlSeconds * 1000 };
-  saveFileDb();
-  return true;
-}
-
-async function getCode(key) {
-  if (USE_UPSTASH) {
-    const r = await upstash('get', key);
-    return r.result || null;
-  }
-  initFileDb();
-  fileDb.codes = fileDb.codes || {};
-  const entry = fileDb.codes[key];
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    delete fileDb.codes[key];
-    saveFileDb();
-    return null;
-  }
-  return entry.code;
-}
-
-async function deleteCode(key) {
-  if (USE_UPSTASH) {
-    await upstash('del', key);
-    return;
-  }
-  initFileDb();
-  if (fileDb.codes) {
-    delete fileDb.codes[key];
-    saveFileDb();
-  }
-}
-
 module.exports = {
   USE_UPSTASH,
   getUsers,
@@ -139,7 +95,4 @@ module.exports = {
   getUserData,
   saveUserData,
   healthInfo,
-  setCode,
-  getCode,
-  deleteCode,
 };
