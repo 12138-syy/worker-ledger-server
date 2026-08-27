@@ -2081,7 +2081,7 @@ function resolveDefaultServerUrl() {
   const stored = localStorage.getItem(CLOUD_KEY_URL);
   if (stored !== null) return stored; // 已设置过（含空字符串=同源/已断开）
   const o = window.location.origin;
-  if (o && o !== 'null' && o.indexOf('sealosbja.site') !== -1) return ''; // 站点本身→同源
+  if (o && o.startsWith('http')) return ''; // 部署在网站上→同源，自动适配任意域名
   return DEFAULT_CLOUD_URL;
 }
 
