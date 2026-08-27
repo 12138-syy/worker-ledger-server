@@ -36,19 +36,4 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/worker-ledger-server:${{ github.sha }}
           platforms: linux/amd64
 
-      # ===== 自动部署到 Sealos：镜像推成功后自动重启容器 =====
-      # 需要先在仓库 Settings → Secrets 里添加 SEALOS_KUBECONFIG（Sealos 控制台下载的 kubeconfig 全文）
-      # 未配置该 secret 时此步自动跳过，不影响构建
-      - name: Set up kubectl
-        if: ${{ secrets.SEALOS_KUBECONFIG != '' }}
-        run: |
-          curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-
-      - name: Deploy to Sealos
-        if: ${{ secrets.SEALOS_KUBECONFIG != '' }}
-        run: |
-          echo "${{ secrets.SEALOS_KUBECONFIG }}" > "$HOME/sealos-kubeconfig.yaml"
-          ./kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" config current-context
-          ./kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" rollout restart deployment/worker-ledger
-          ./kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" rollout status deployment/worker-ledger --timeout=120s
+      # 部署由 Sealos 源码部署（GitHub webhook）自动完成，此处不再用 kubectl。
