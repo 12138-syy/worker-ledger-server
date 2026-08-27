@@ -624,6 +624,13 @@ input[type=number]::-webkit-inner-spin-button{display:none}
     <div class="quick-amounts" id="quick-amounts"></div>
 
     <div class="field">
+      <div class="field-label">日期</div>
+      <div class="input-row">
+        <input type="date" id="date-input">
+      </div>
+    </div>
+
+    <div class="field">
       <div class="field-label">分类</div>
       <div class="chip-grid" id="cat-grid"></div>
     </div>
@@ -1499,6 +1506,13 @@ function showCalDay(dateStr) {
 function renderAccount() {
   // Set type
   setRecordType(currentRecordType, false);
+  // Reset date to today each time the page is opened
+  const di = document.getElementById('date-input');
+  if (di) {
+    const today = fmtDate(new Date());
+    di.value = today;
+    di.max = today; // 不能记未来
+  }
   renderTodayList();
 }
 
@@ -1591,7 +1605,7 @@ function saveRecord() {
     amount: Math.round(amt * 100) / 100,
     category: currentCategory,
     note: note || '',
-    date: fmtDate(new Date()),
+    date: (document.getElementById('date-input').value || fmtDate(new Date())),
     isSample: false,
   };
   
