@@ -41,12 +41,14 @@ jobs:
       # 未配置该 secret 时此步自动跳过，不影响构建
       - name: Set up kubectl
         if: ${{ secrets.SEALOS_KUBECONFIG != '' }}
-        uses: azure/setup-kubectl@v4
-        with:
-          version: 'latest'
+        run: |
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
 
       - name: Deploy to Sealos
         if: ${{ secrets.SEALOS_KUBECONFIG != '' }}
         run: |
           echo "${{ secrets.SEALOS_KUBECONFIG }}" > "$HOME/sealos-kubeconfig.yaml"
-          kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" rollout restart deployment/worker-ledger
+          ./kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" config current-context
+          ./kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" rollout restart deployment/worker-ledger
+          ./kubectl --kubeconfig="$HOME/sealos-kubeconfig.yaml" rollout status deployment/worker-ledger --timeout=120s
