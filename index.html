@@ -367,6 +367,11 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 .modal-box{background:var(--card);border-radius:var(--radius);padding:20px;max-width:380px;width:100%;box-shadow:var(--shadow-lg);max-height:80vh;overflow-y:auto}
 .modal-title{font-size:16px;font-weight:700;color:var(--brown-d);margin-bottom:14px}
 .modal-actions{display:flex;gap:8px;margin-top:16px}
+.rec-edit-btn{margin-top:4px;font-size:11px;color:var(--mint-d);background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:6px}
+.rec-edit-btn:hover{background:var(--border2)}
+.edit-row{margin-bottom:12px}
+.edit-row label{display:block;font-size:13px;color:var(--brown-l);margin-bottom:4px}
+.edit-row input,.edit-row select{width:100%;padding:8px;border:1px solid var(--border2);border-radius:8px;font-size:15px;box-sizing:border-box}
 
 /* ===== Data Management ===== */
 .data-actions{display:flex;flex-direction:column;gap:8px}
@@ -1357,6 +1362,7 @@ function renderRecordItem(r, showDateLabel) {
         <div class="record-amt ${r.type}">${sign}${fmtMoney2(r.amount)}</div>
         ${showDateLabel ? `<div class="record-time">${dateLabel}</div>` : ''}
         ${workTime ? `<div class="record-worktime">≈ ${workTime}</div>` : ''}
+        <button type="button" class="rec-edit-btn" onclick="editRecord(${r.id})">编辑</button>
       </div>
     </div>`;
 }
@@ -1632,6 +1638,72 @@ function saveRecord() {
   document.getElementById('note-input').value = '';
   updateWorkTimeHint();
   renderTodayList();
+}
+
+// ============================================================
+// 编辑记录
+// ============================================================
+let editingId = null;
+let editingType = 'expense';
+
+function editRecord(id) {
+  const r = state.records.find(x => x.id === id);
+  if (!r) return;
+  editingId = id;
+  editingType = r.type;
+  document.getElementById('modal-title').textContent = '编辑记录';
+  document.getElementById('modal-body').innerHTML = editFormHtml(r);
+  modalCallback = doSaveEdit;
+  document.getElementById('modal').classList.add('show');
+}
+
+function editFormHtml(r) {
+  const cats = CATS[editingType];
+  const keep = cats.find(c => c.name === r.category) ? r.category : cats[0].name;
+  const opts = cats.map(c => `<option value="${c.name}" ${c.name === keep ? 'selected' : ''}>${c.name}</option>`).join('');
+  const note = (r.note || '')
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `
+    <div class="edit-row"><label>类型</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn ${editingType==='expense'?'btn-primary':'btn-ghost'}" style="flex:1" id="et-exp" onclick="setEditType('expense')">支出</button>
+        <button type="button" class="btn ${editingType==='income'?'btn-primary':'btn-ghost'}" style="flex:1" id="et-inc" onclick="setEditType('income')">收入</button>
+      </div>
+    </div>
+    <div class="edit-row"><label>金额</label><input type="number" id="edit-amt" step="0.01" min="0" value="${r.amount}"></div>
+    <div class="edit-row"><label>分类</label><select id="edit-cat">${opts}</select></div>
+    <div class="edit-row"><label>日期</label><input type="date" id="edit-date" value="${r.date}"></div>
+    <div class="edit-row"><label>备注</label><input id="edit-note" value="${note}"></div>
+  `;
+}
+
+function setEditType(type) {
+  editingType = type;
+  document.getElementById('et-exp').className = 'btn ' + (type === 'expense' ? 'btn-primary' : 'btn-ghost');
+  document.getElementById('et-inc').className = 'btn ' + (type === 'income' ? 'btn-primary' : 'btn-ghost');
+  const sel = document.getElementById('edit-cat');
+  const cur = sel.value;
+  const cats = CATS[type];
+  const keep = cats.find(c => c.name === cur) ? cur : cats[0].name;
+  sel.innerHTML = cats.map(c => `<option value="${c.name}" ${c.name === keep ? 'selected' : ''}>${c.name}</option>`).join('');
+}
+
+function doSaveEdit() {
+  const r = state.records.find(x => x.id === editingId);
+  if (!r) return false;
+  const amt = parseFloat(document.getElementById('edit-amt').value);
+  if (!amt || amt <= 0) { showToast('请输入有效金额'); return false; }
+  r.type = editingType;
+  r.amount = Math.round(amt * 100) / 100;
+  r.category = document.getElementById('edit-cat').value;
+  r.date = document.getElementById('edit-date').value || r.date;
+  r.note = document.getElementById('edit-note').value.trim();
+  saveState();
+  renderAccount();
+  renderTodayList();
+  showToast('已更新记录');
+  return true;
 }
 
 function renderTodayList() {
