@@ -372,6 +372,15 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 .edit-row{margin-bottom:12px}
 .edit-row label{display:block;font-size:13px;color:var(--brown-l);margin-bottom:4px}
 .edit-row input,.edit-row select{width:100%;padding:8px;border:1px solid var(--border2);border-radius:8px;font-size:15px;box-sizing:border-box}
+.quick-expense{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#FF7A6B,#FF9D8E);color:#fff;padding:16px 18px;border-radius:16px;cursor:pointer;box-shadow:0 6px 16px rgba(255,122,107,.28);margin-bottom:12px}
+.quick-expense:active{transform:scale(.98)}
+.qe-icon{font-size:26px;line-height:1}
+.qe-text{flex:1}
+.qe-title{font-size:16px;font-weight:700}
+.qe-sub{font-size:12px;opacity:.92;margin-top:2px}
+.qe-go{font-size:14px;font-weight:600;background:rgba(255,255,255,.22);padding:6px 12px;border-radius:20px;white-space:nowrap}
+.qe-snooze{text-align:center;font-size:13px;color:var(--mint-d);padding:10px;cursor:pointer;margin-bottom:14px}
+.qe-snooze.set{color:var(--brown-l)}
 
 /* ===== Data Management ===== */
 .data-actions{display:flex;flex-direction:column;gap:8px}
@@ -582,6 +591,17 @@ input[type=number]::-webkit-inner-spin-button{display:none}
       <rect x="65" y="70" width="7" height="8" rx="3" fill="#FF9D8E"/>
     </svg>
   </div>
+
+  <!-- 刚花了钱：一键记账 + 稍后提醒 -->
+  <div class="quick-expense" onclick="quickExpense()">
+    <span class="qe-icon">💸</span>
+    <div class="qe-text">
+      <div class="qe-title">刚花了钱？</div>
+      <div class="qe-sub">点一下，马上记</div>
+    </div>
+    <span class="qe-go">去记账 ›</span>
+  </div>
+  <div class="qe-snooze" id="qe-snooze" onclick="snoozeReminder()">⏰ 先不记，10 分钟后再提醒我</div>
 
   <div class="grid grid-3" style="margin-bottom:14px">
     <div class="stat-card">
@@ -1603,6 +1623,7 @@ function saveRecord() {
     showToast('请输入有效金额');
     return;
   }
+  cancelSnooze();
   const note = document.getElementById('note-input').value.trim();
   
   const record = {
@@ -1638,6 +1659,55 @@ function saveRecord() {
   document.getElementById('note-input').value = '';
   updateWorkTimeHint();
   renderTodayList();
+}
+
+// ============================================================
+// 刚花了钱：一键记账 + 稍后提醒
+// ============================================================
+function quickExpense() {
+  switchPage('account');
+  setRecordType('expense', false);
+  document.getElementById('amt-input').focus();
+}
+
+let snoozeTimer = null;
+function snoozeReminder() {
+  if (snoozeTimer) {
+    showToast('已经设过提醒啦，等下就弹');
+    return;
+  }
+  // 首次点击时申请浏览器通知权限（用于关屏也能弹）
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
+  const fire = () => {
+    snoozeTimer = null;
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        const n = new Notification('记账提醒 💸', { body: '刚花了钱还没记吧？点开记一下～' });
+        n.onclick = () => { window.focus(); quickExpense(); };
+      } catch (e) {
+        showToast('该记账啦：刚花了钱还没记哦');
+      }
+    } else {
+      showToast('该记账啦：刚花了钱还没记哦');
+    }
+    const btn = document.getElementById('qe-snooze');
+    if (btn) { btn.textContent = '⏰ 先不记，10 分钟后再提醒我'; btn.classList.remove('set'); }
+  };
+  snoozeTimer = setTimeout(fire, 10 * 60 * 1000);
+  const btn = document.getElementById('qe-snooze');
+  if (btn) { btn.textContent = '⏰ 已设提醒 · 10 分钟后弹'; btn.classList.add('set'); }
+  showToast('已设 10 分钟后提醒你记账');
+}
+
+function cancelSnooze() {
+  if (snoozeTimer) {
+    clearTimeout(snoozeTimer);
+    snoozeTimer = null;
+    const btn = document.getElementById('qe-snooze');
+    if (btn) { btn.textContent = '⏰ 先不记，10 分钟后再提醒我'; btn.classList.remove('set'); }
+  }
 }
 
 // ============================================================
