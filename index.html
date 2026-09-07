@@ -2798,6 +2798,11 @@ function init() {
     
     // Show auto-trigger banner
     showToast('检测到消费 ¥' + fmtMoney(autoAmount) + '，请确认记账');
+  } else if (params.get('quick')) {
+    // Quick-add launch (e.g. iOS Back Tap / home-screen shortcut): land on record form
+    switchPage('account');
+    setRecordType('expense', false);
+    document.getElementById('amt-input')?.focus();
   } else {
     // Normal start
     renderHome();
