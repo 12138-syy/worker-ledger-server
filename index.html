@@ -466,6 +466,12 @@ input[type=number]::-webkit-inner-spin-button{display:none}
 .cat-s-item.active{border-color:var(--mint);background:var(--mint-l)}
 .cat-s-item.active .cat-s-name{color:var(--mint-d);font-weight:700}
 .cat-s-name{line-height:1.1}
+.cat-s-empty{grid-column:1/-1;color:var(--brown-l);font-size:13px;opacity:.7;padding:8px 2px;text-align:center}
+.acc-add-row{display:flex;gap:8px;padding:12px;border-top:1px solid var(--bg2);align-items:stretch}
+.acc-add-input{flex:1;min-width:0;padding:10px 12px;border:1.5px solid var(--bg2);border-radius:10px;font-size:14px;background:var(--card);color:var(--brown-d)}
+.acc-add-input:focus{outline:none;border-color:var(--mint)}
+.acc-add-btn{flex-shrink:0;padding:0 16px;border:none;border-radius:10px;background:var(--mint);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+.acc-add-btn:active{transform:scale(.96)}
 
 /* 编辑记录面板 */
 .edit-body{overflow-y:auto}
@@ -844,6 +850,18 @@ input[type=number]::-webkit-inner-spin-button{display:none}
     </div>
 
     <div class="field">
+      <div class="field-label">支付方式</div>
+      <div class="cat-picker" id="acc-picker" onclick="openAccSheet('record')">
+        <div class="cat-picker-icon" id="acc-picker-icon">💬</div>
+        <div class="cat-picker-text">
+          <span class="cat-picker-main" id="acc-picker-main">微信</span>
+          <span class="cat-picker-sub" id="acc-picker-sub"></span>
+        </div>
+        <svg class="cat-picker-arrow" viewBox="0 0 24 24"><use href="#i-arrow-right"/></svg>
+      </div>
+    </div>
+
+    <div class="field">
       <div class="field-label">备注</div>
       <div class="input-row">
         <input type="text" id="note-input" placeholder="写点什么…" maxlength="30">
@@ -1193,6 +1211,25 @@ input[type=number]::-webkit-inner-spin-button{display:none}
   </div>
 </div>
 
+<!-- ===== 支付方式选择面板（底部滑出）===== -->
+<div class="overlay" id="acc-overlay" onclick="if(event.target===this)closeAccSheet()">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="acc-sheet-title">选择支付方式</div>
+      <button class="sheet-close" onclick="closeAccSheet()">✕</button>
+    </div>
+    <div class="cat-cols">
+      <div class="cat-col-primary" id="acc-primary-col"></div>
+      <div class="cat-col-secondary" id="acc-secondary-col"></div>
+    </div>
+    <div class="acc-add-row">
+      <input type="text" id="acc-add-input" class="acc-add-input" placeholder="添加支付方式，如：现金 / 招商银行" maxlength="12" onkeydown="if(event.key==='Enter')addPayMethod()">
+      <button class="acc-add-btn" onclick="addPayMethod()">＋ 添加</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 编辑记录面板（底部滑出）===== -->
 <div class="overlay" id="edit-overlay" onclick="if(event.target===this)closeEdit()">
   <div class="sheet">
@@ -1217,6 +1254,17 @@ input[type=number]::-webkit-inner-spin-button{display:none}
           <div class="cat-picker-text">
             <span class="cat-picker-main" id="e-cat-main">餐饮</span>
             <span class="cat-picker-sub" id="e-cat-sub">午餐</span>
+          </div>
+          <svg class="cat-picker-arrow" viewBox="0 0 24 24"><use href="#i-arrow-right"/></svg>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-label">支付方式</div>
+        <div class="cat-picker" id="e-acc-picker" onclick="openAccSheet('edit')">
+          <div class="cat-picker-icon" id="e-acc-icon">💬</div>
+          <div class="cat-picker-text">
+            <span class="cat-picker-main" id="e-acc-main">微信</span>
+            <span class="cat-picker-sub" id="e-acc-sub"></span>
           </div>
           <svg class="cat-picker-arrow" viewBox="0 0 24 24"><use href="#i-arrow-right"/></svg>
         </div>
@@ -1386,6 +1434,7 @@ let state = {
   settings: { ...DEFAULT_SETTINGS },
   records: [],
   goals: { ...DEFAULT_GOALS },
+  customAccounts: [],
   isSample: true,
 };
 
@@ -1397,6 +1446,37 @@ let currentMonth = null; // YYYY-MM
 let currentRecentView = 'list'; // 'list' | 'calendar'
 let currentCalMonth = null; // YYYY-MM for calendar
 let modalCallback = null;
+
+// 支付方式（账户）状态：current* 用于「记一笔」，editing* 用于「编辑记录」
+let currentAccount = '微信';
+let currentAccountSub = '';
+let editingAccount = '微信';
+let editingAccountSub = '';
+let accTarget = 'record';   // 'record' | 'edit'
+let accPickerPrimary = '微信';
+let accPickerSub = '';
+
+// 预设支付方式：微信 / 支付宝 / 银行卡（银行卡带银行二级）/ 现金（收入侧）
+const PAY_METHODS = {
+  expense: [
+    { name: '微信', emoji: '💬', color: '#09BB07', sub: null },
+    { name: '支付宝', emoji: '🅰️', color: '#1677FF', sub: null },
+    { name: '银行卡', emoji: '💳', color: '#225DAB', sub: ['招商银行','工商银行','建设银行','农业银行','中国银行','交通银行','邮储银行','中信银行','浦发银行','其他银行'] },
+  ],
+  income: [
+    { name: '微信', emoji: '💬', color: '#09BB07', sub: null },
+    { name: '支付宝', emoji: '🅰️', color: '#1677FF', sub: null },
+    { name: '银行卡', emoji: '💳', color: '#225DAB', sub: ['招商银行','工商银行','建设银行','农业银行','中国银行','交通银行','邮储银行','中信银行','浦发银行','其他银行'] },
+    { name: '现金', emoji: '💵', color: '#E0A458', sub: null },
+  ],
+};
+
+// 获取某收支类型下的全部支付方式（预设 + 用户自定义）
+function getPayMethods(type) {
+  const base = PAY_METHODS[type] || [];
+  const custom = (state.customAccounts || []).filter(a => a.type === type);
+  return base.concat(custom);
+}
 
 // ============================================================
 // DB
@@ -1410,6 +1490,7 @@ function loadState() {
         settings: { ...DEFAULT_SETTINGS, ...data.settings },
         records: data.records || [],
         goals: { ...DEFAULT_GOALS, ...data.goals },
+        customAccounts: data.customAccounts || [],
         isSample: data.isSample !== false,
       };
     } else {
@@ -2034,7 +2115,7 @@ function renderRecordItem(r, showDateLabel) {
       <div class="record-icon" style="background:${cat.color}"><svg><use href="#${cat.icon}"/></svg></div>
       <div class="record-info">
         <div class="record-cat">${r.category}${r.subCategory ? ' · ' + r.subCategory : ''}${r.isSample ? ' <span class="badge badge-sample">示例</span>' : ''}${overBudget ? '<span class="badge-over">超支</span>' : ''}</div>
-        <div class="record-note">${r.note || '无备注'}</div>
+        <div class="record-note">${(r.account ? '💳 ' + r.account + (r.accountSub ? ' · ' + r.accountSub : '') : '')}${r.note ? (r.account ? '　' : '') + r.note : (r.account ? '' : '无备注')}</div>
       </div>
       <div>
         <div class="record-amt ${r.type}">${sign}${fmtMoney2(r.amount)}</div>
@@ -2210,7 +2291,12 @@ function setRecordType(type, resetCat) {
   const defaultSubs = CATS[type][currentCategory] || [''];
   currentSubCategory = defaultSubs.includes('午餐') ? '午餐' : defaultSubs[0];
   updateCatPicker();
-  
+
+  // 支付方式：若当前账户不在该收支类型下，回退到首个支付方式
+  const methodNames = getPayMethods(type).map(m => m.name);
+  if (!methodNames.includes(currentAccount)) { currentAccount = methodNames[0]; currentAccountSub = ''; }
+  updateAccPicker();
+
   // Quick amounts
   const quickEl = document.getElementById('quick-amounts');
   if (type === 'expense') {
@@ -2331,6 +2417,118 @@ function selectSubCat(sub) {
   closeCatSheet();
 }
 
+// ---------- 支付方式（账户）选择 ----------
+function payMeta(name, type) {
+  const m = getPayMethods(type).find(x => x.name === name);
+  return m ? { emoji: m.emoji, color: m.color } : { emoji: '💳', color: '#225DAB' };
+}
+
+function openAccSheet(target) {
+  accTarget = target;
+  const type = target === 'edit' ? editingType : currentRecordType;
+  const cur = target === 'edit' ? editingAccount : currentAccount;
+  const curSub = target === 'edit' ? editingAccountSub : currentAccountSub;
+  accPickerPrimary = (getPayMethods(type).some(m => m.name === cur)) ? cur : getPayMethods(type)[0].name;
+  accPickerSub = curSub || '';
+  renderAccSheet();
+  document.getElementById('acc-overlay').classList.add('show');
+}
+
+function closeAccSheet() {
+  document.getElementById('acc-overlay').classList.remove('show');
+}
+
+function renderAccSheet() {
+  const prim = document.getElementById('acc-primary-col');
+  const sec = document.getElementById('acc-secondary-col');
+  if (!prim || !sec) return;
+  const type = accTarget === 'edit' ? editingType : currentRecordType;
+  const methods = getPayMethods(type);
+  prim.innerHTML = methods.map(m => `
+    <button class="cat-p-item ${m.name === accPickerPrimary ? 'active' : ''}" onclick="selectAccPrimary('${m.name.replace(/'/g, "\\'")}')">
+      <span style="font-size:18px">${m.emoji}</span>${m.name}
+    </button>`).join('');
+  const cur = methods.find(m => m.name === accPickerPrimary);
+  if (cur && cur.sub && cur.sub.length) {
+    sec.innerHTML = '<div class="cat-s-empty">选择' + cur.name + '所属银行</div>' + cur.sub.map(b => `
+      <button class="cat-s-item ${accPickerSub === b ? 'active' : ''}" onclick="selectAccSub('${b.replace(/'/g, "\\'")}')">
+        <span class="cat-s-icon" style="background:${cur.color}">${cur.emoji}</span>
+        <span class="cat-s-name">${b}</span>
+      </button>`).join('');
+  } else {
+    sec.innerHTML = '<div class="cat-s-empty">该支付方式无需选择二级</div>';
+  }
+}
+
+function selectAccPrimary(name) {
+  accPickerPrimary = name;
+  const type = accTarget === 'edit' ? editingType : currentRecordType;
+  const cur = getPayMethods(type).find(m => m.name === name);
+  if (cur && cur.sub && cur.sub.length) {
+    accPickerSub = '';
+    renderAccSheet();
+  } else {
+    accPickerSub = '';
+    applyAccount();
+    closeAccSheet();
+  }
+}
+
+function selectAccSub(bank) {
+  accPickerSub = bank;
+  applyAccount();
+  closeAccSheet();
+}
+
+function applyAccount() {
+  if (accTarget === 'edit') {
+    editingAccount = accPickerPrimary;
+    editingAccountSub = accPickerSub;
+    updateEditAccPicker();
+  } else {
+    currentAccount = accPickerPrimary;
+    currentAccountSub = accPickerSub;
+    updateAccPicker();
+  }
+}
+
+function updateAccPicker() {
+  const p = document.getElementById('acc-picker-main');
+  const s = document.getElementById('acc-picker-sub');
+  const ic = document.getElementById('acc-picker-icon');
+  if (!p) return;
+  const m = payMeta(currentAccount, currentRecordType);
+  ic.textContent = m.emoji;
+  ic.style.background = m.color;
+  p.textContent = currentAccount || '';
+  s.textContent = currentAccountSub || '';
+}
+
+function updateEditAccPicker() {
+  const p = document.getElementById('e-acc-main');
+  const s = document.getElementById('e-acc-sub');
+  const ic = document.getElementById('e-acc-icon');
+  if (!p) return;
+  const m = payMeta(editingAccount, editingType);
+  ic.textContent = m.emoji;
+  ic.style.background = m.color;
+  p.textContent = editingAccount || '';
+  s.textContent = editingAccountSub || '';
+}
+
+function addPayMethod() {
+  const inp = document.getElementById('acc-add-input');
+  const val = (inp.value || '').trim();
+  if (!val) { showToast('请输入支付方式名称'); return; }
+  const type = accTarget === 'edit' ? editingType : currentRecordType;
+  if (getPayMethods(type).some(m => m.name === val)) { showToast('已存在该支付方式'); inp.value = ''; return; }
+  state.customAccounts.push({ type, name: val, emoji: '💰', color: '#6E97CC', sub: null });
+  saveState();
+  inp.value = '';
+  renderAccSheet();
+  showToast('已添加：' + val);
+}
+
 // ---------- 编辑记录面板 ----------
 let editingId = null;
 let editingType = 'expense';
@@ -2345,11 +2543,14 @@ function openEdit(id) {
   editingCat = r.category;
   if (!CATS[editingType][editingCat]) editingCat = Object.keys(CATS[editingType])[0];
   editingSub = r.subCategory || (CATS[editingType][editingCat] || [''])[0];
+  editingAccount = r.account || '微信';
+  editingAccountSub = r.accountSub || '';
   document.getElementById('e-amount').value = r.amount;
   document.getElementById('e-date').value = r.date;
   document.getElementById('e-note').value = r.note || '';
   setEditTypeUI();
   updateEditCatPicker();
+  updateEditAccPicker();
   document.getElementById('edit-overlay').classList.add('show');
 }
 
@@ -2378,6 +2579,8 @@ function doSaveEdit() {
   r.amount = Math.round(amt * 100) / 100;
   r.category = editingCat;
   r.subCategory = editingSub || '';
+  r.account = editingAccount;
+  r.accountSub = editingAccountSub || '';
   r.date = date;
   r.note = document.getElementById('e-note').value.trim();
   r.isSample = false;
@@ -3051,6 +3254,8 @@ function saveRecord() {
     amount: Math.round(amt * 100) / 100,
     category: currentCategory,
     subCategory: currentSubCategory || '',
+    account: currentAccount,
+    accountSub: currentAccountSub || '',
     note: note || '',
     date: (document.getElementById('date-input').value || fmtDate(new Date())),
     isSample: false,
@@ -3481,11 +3686,13 @@ function downloadBlob(blob, filename) {
 }
 
 function exportCSV() {
-  const head = ['日期', '类型', '一级分类', '二级分类', '金额', '备注'];
+  const head = ['日期', '类型', '一级分类', '二级分类', '支付方式', '金额', '备注'];
   const rows = [head];
   state.records.forEach(r => rows.push([
     r.date || '', r.type === 'income' ? '收入' : '支出',
-    r.category || '', r.subCategory || '', r.amount || 0, r.note || ''
+    r.category || '', r.subCategory || '',
+    (r.account || '') + (r.accountSub ? '·' + r.accountSub : ''),
+    r.amount || 0, r.note || ''
   ]));
   const csv = rows.map(row => row.map(c => {
     const s = String(c == null ? '' : c);
@@ -3523,11 +3730,13 @@ function loadXlsx() {
 
 function exportExcel() {
   loadXlsx().then(X => {
-    const head = ['日期', '类型', '一级分类', '二级分类', '金额', '备注'];
+    const head = ['日期', '类型', '一级分类', '二级分类', '支付方式', '金额', '备注'];
     const wsData = [head];
     state.records.forEach(r => wsData.push([
       r.date || '', r.type === 'income' ? '收入' : '支出',
-      r.category || '', r.subCategory || '', r.amount || 0, r.note || ''
+      r.category || '', r.subCategory || '',
+      (r.account || '') + (r.accountSub ? '·' + r.accountSub : ''),
+      r.amount || 0, r.note || ''
     ]));
     const ws = X.utils.aoa_to_sheet(wsData);
     const wb = X.utils.book_new();
@@ -3580,13 +3789,28 @@ function buildRecordsFromRows(rows) {
   const recs = [];
   (rows || []).forEach((c, i) => {
     if (!c || c.length < 5) return;
-    const type = String(c[1] || '').includes('收入') ? 'income' : 'expense';
-    const amt = parseFloat(String(c[4]).replace(/[^\d.\-]/g, ''));
-    if (isNaN(amt)) return;
+    // 新格式 7 列含「支付方式」(c[4])；旧格式 6 列无支付方式（金额在 c[4]）
+    let type, category, subCategory, account, amount, note;
+    if (c.length >= 7) {
+      account = String(c[4] || '');
+      amount = parseFloat(String(c[5]).replace(/[^\d.\-]/g, ''));
+      note = c[6] || '';
+    } else {
+      account = '';
+      amount = parseFloat(String(c[4]).replace(/[^\d.\-]/g, ''));
+      note = c[5] || '';
+    }
+    type = String(c[1] || '').includes('收入') ? 'income' : 'expense';
+    category = c[2] || '其他';
+    subCategory = c[3] || '';
+    if (isNaN(amount)) return;
+    let acct = account.trim(), acctSub = '';
+    if (acct.indexOf('·') >= 0) { const p = acct.split('·'); acct = p[0]; acctSub = p.slice(1).join('·'); }
     recs.push({
       id: Date.now() + Math.floor(Math.random() * 1000) + i,
-      type, amount: amt, category: c[2] || '其他', subCategory: c[3] || '',
-      note: c[5] || '', date: c[0] || fmtDate(new Date()), isSample: false
+      type, amount: amount, category, subCategory,
+      account: acct, accountSub: acctSub,
+      note: note, date: c[0] || fmtDate(new Date()), isSample: false
     });
   });
   return recs;
