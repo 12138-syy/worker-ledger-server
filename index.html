@@ -800,14 +800,15 @@ input[type=number]::-webkit-inner-spin-button{display:none}
         <svg><use href="#i-mic"/></svg>
         <span id="mic-btn-text">语音记账</span>
       </button>
-      <button class="cam-btn" id="cam-btn" onclick="openCamera()" title="拍小票 / 账单截图，识别文字填进备注">
+      <button class="cam-btn" id="cam-btn" onclick="openCamera()" title="拍小票 / 账单截图，自动识别金额与分类">
         <svg><use href="#i-camera"/></svg>
         <span id="cam-btn-text">拍照记账</span>
       </button>
     </div>
   </div>
-  <div class="mic-hint" id="mic-hint">点麦克风说出「今天午餐花了35元」，或点相机拍小票识别文字</div>
-  <input type="file" id="cam-input" accept="image/*" capture="environment" style="display:none" onchange="handleCameraFile(this)">
+  <div class="mic-hint" id="mic-hint">点麦克风说出「今天午餐花了35元」，或点相机拍小票 / 上传截图，自动识别金额与分类</div>
+  <input type="file" id="cam-input-cap" accept="image/*" capture="environment" style="display:none" onchange="handleCameraFile(this)">
+  <input type="file" id="cam-input-up" accept="image/*" style="display:none" onchange="handleCameraFile(this)">
   <div class="card">
     <div class="toggle-group" style="margin-bottom:14px">
       <button class="toggle-btn active" id="tg-expense" onclick="setRecordType('expense')">支出</button>
@@ -1271,6 +1272,22 @@ input[type=number]::-webkit-inner-spin-button{display:none}
     <div class="ocr-track"><div class="ocr-fill" id="ocr-fill"></div></div>
     <img class="ocr-preview" id="ocr-preview" alt="识别图片预览">
     <div class="ocr-foot" id="ocr-foot">识别在本地浏览器完成，图片不会上传到服务器</div>
+  </div>
+</div>
+
+<!-- 拍照记账：选择「拍照」或「从相册 / 截图上传」 -->
+<div class="ocr-overlay" id="cam-choice" style="display:none;z-index:750" onclick="if(event.target===this)closeCamChoice()">
+  <div class="ocr-card" style="padding:18px 18px 10px">
+    <div class="ocr-title" style="margin-bottom:12px">拍照记账</div>
+    <button class="cat-s-item" style="width:100%;margin-bottom:10px;justify-content:flex-start" onclick="pickCam('capture')">
+      <span class="cat-s-icon" style="background:var(--mint-d)"><svg><use href="#i-camera"/></svg></span>
+      <span class="cat-s-name">拍照（小票 / 账单）</span>
+    </button>
+    <button class="cat-s-item" style="width:100%;justify-content:flex-start;margin-bottom:12px" onclick="pickCam('upload')">
+      <span class="cat-s-icon" style="background:var(--mint)"><svg><use href="#i-upload"/></svg></span>
+      <span class="cat-s-name">从相册 / 截图上传</span>
+    </button>
+    <button class="cat-s-item" style="width:100%;justify-content:center;color:var(--brown-l)" onclick="closeCamChoice()">取消</button>
   </div>
 </div>
 
@@ -2499,6 +2516,10 @@ const VOICE_SYNONYMS = [
   ['外包','兼职','外包'], ['兼职','兼职','外包'], ['副业','兼职','副业'], ['稿费','兼职','稿费'],
   ['利息','理财','利息'], ['分红','理财','分红'], ['基金','理财','基金'], ['租金','理财','租金'],
   ['红包','理财','红包'],
+  ['淘宝','购物','日用'], ['天猫','购物','日用'], ['京东','购物','日用'], ['拼多多','购物','日用'], ['抖音','购物','日用'],
+  ['唯品会','购物','服饰'], ['苏宁','购物','家电'],
+  ['美团','餐饮','外卖'], ['饿了么','餐饮','外卖'], ['大众点评','餐饮','外卖'],
+  ['便利店','购物','日用'], ['文具店','教育','文具'],
 ];
 
 function voiceSupported() {
@@ -2817,7 +2838,16 @@ function hideOcrOverlay() {
 // 点击相机按钮 → 触发系统相机 / 相册
 function openCamera() {
   if (ocrBusy) { showToast('正在识别上一张图片，请稍候'); return; }
-  const input = document.getElementById('cam-input');
+  const sheet = document.getElementById('cam-choice');
+  if (sheet) sheet.style.display = 'flex';   // 弹出「拍照 / 上传」选择
+}
+function closeCamChoice() {
+  const sheet = document.getElementById('cam-choice');
+  if (sheet) sheet.style.display = 'none';
+}
+function pickCam(mode) {
+  closeCamChoice();
+  const input = document.getElementById(mode === 'capture' ? 'cam-input-cap' : 'cam-input-up');
   if (!input) return;
   input.value = '';   // 允许重复选择同一张图
   input.click();
@@ -2885,11 +2915,16 @@ function extractOcrNote(text) {
   return src.join(' ').replace(/[¥￥$]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-// 只在提示里给出金额 / 分类线索，不自动填写
+// 从 OCR 文字里挑金额：优先「实付/应付/总计/合计/支付/收款」等关键词后的数字，其次 ¥ 金额，再次两位小数
 function guessOcrAmount(text) {
-  const m = String(text || '').match(/(?:¥|￥)\s*(\d+(?:\.\d{1,2})?)/) ||
-            String(text || '').match(/(\d+\.\d{2})(?!\d)/);
-  return m ? parseFloat(m[1]) : null;
+  const t = String(text || '');
+  const m1 = t.match(/(?:实付|应付|需付|到手|到账|实收|收款|收入|总计|合计|支付金额?|订单金额?|消费金额?|账单金额?|金额)[:：]?\s*[¥￥]?\s*(\d+(?:\.\d{1,2})?)/);
+  if (m1) return parseFloat(m1[1]);
+  const m2 = t.match(/(?:¥|￥)\s*(\d+(?:\.\d{1,2})?)/);
+  if (m2) return parseFloat(m2[1]);
+  const m3 = t.match(/(\d+\.\d{2})(?!\d)/);
+  if (m3) return parseFloat(m3[1]);
+  return null;
 }
 
 // 选择图片后：识别 → 填备注
@@ -2960,20 +2995,26 @@ async function handleCameraFile(input) {
     }
     const truncated = picked.length > 30;
 
+    const amt = guessOcrAmount(full);
+    const cat = matchVoiceCategory(full, 'expense');
+
+    // 与语音记账一致：自动切到支出并填入金额、分类，保存前用户可核对修改
+    setRecordType('expense', false);
+    if (amt && amt > 0) setAmount(amt);
+    if (cat) setCategory('expense', cat.primary, cat.sub);
+
     const title = document.getElementById('ocr-title');
     if (title) title.textContent = '识别完成';
-    setOcrStatus('已把识别文字填入备注', 100);
+    setOcrStatus('已自动填入金额与分类，请核对', 100);
     const foot = document.getElementById('ocr-foot');
-    if (foot) foot.textContent = '为避免填错，金额与分类没有自动填写，请对照识别结果自己填一下';
+    if (foot) foot.textContent = '已自动识别并填入金额与分类，请核对后保存；不对可手动修改';
 
-    // 提示里顺便给出金额 / 分类线索（仅提示，不代填）
-    const tips = [];
-    const amt = guessOcrAmount(full);
-    if (amt) tips.push('识别到金额 ¥' + fmtMoney(amt));
-    const cat = matchVoiceCategory(full, 'expense');
-    if (cat) tips.push('看着像「' + cat.primary + ' · ' + cat.sub + '」');
+    // 提示里汇总已自动填入的内容
+    const parts = [];
+    if (amt && amt > 0) parts.push('金额 ¥' + fmtMoney(amt));
+    if (cat) parts.push('分类「' + cat.primary + ' · ' + cat.sub + '」');
     setMicHint('ok', '已把识别文字填入备注' + (truncated ? '（较长，只取了前 30 字）' : '') +
-      (tips.length ? '（' + tips.join('，') + '，请核对后自己填写金额与分类）' : '，请自己填写金额与分类'));
+      (parts.length ? '，并自动填入 ' + parts.join('、') + '，请核对后保存' : '，但没识别出金额和分类，请手动填写'));
   } catch (e) {
     const msg = (e && e.message) ? e.message : '未知错误';
     const title = document.getElementById('ocr-title');
@@ -2993,7 +3034,7 @@ async function handleCameraFile(input) {
 function initCameraUI() {
   // 图片输入依赖系统相机 / 相册，无需额外权限检测；仅给出联网提示
   const btn = document.getElementById('cam-btn');
-  if (btn) btn.title = '拍小票 / 账单截图，识别文字填进备注';
+  if (btn) btn.title = '拍小票 / 账单截图，或上传图片，自动识别金额与分类';
 }
 
 function saveRecord() {
