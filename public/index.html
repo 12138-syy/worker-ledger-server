@@ -1481,6 +1481,38 @@ function getPayMethods(type) {
 // ============================================================
 // DB
 // ============================================================
+// 把任意形式的日期（字符串 / Excel序列号 / Date 对象）规范成 YYYY-MM-DD
+function normRecDate(v) {
+  const today = fmtDate(new Date());
+  try {
+    if (v instanceof Date) return isNaN(v) ? today : fmtDate(v);
+    if (typeof v === 'number' && isFinite(v)) {
+      if (v < 1000 || v > 90000) return today;        // 不像 Excel 日期序列号，兜底为今天
+      const days = Math.floor(v + 1e-6);              // Excel 序列号整数部分即日期
+      const d = new Date((days - 25569) * 86400000);  // 基准 1899-12-30 → Unix
+      if (isNaN(d)) return today;
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    }
+    let s = String(v == null ? '' : v).trim().replace(/\//g, '-');
+    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return m[1] + '-' + String(+m[2]).padStart(2, '0') + '-' + String(+m[3]).padStart(2, '0');
+    const d2 = new Date(s);
+    return isNaN(d2) ? today : fmtDate(d2);
+  } catch (e) { return today; }
+}
+// 清洗记录数组：把所有非 YYYY-MM-DD 字符串的 date 修正掉，返回修正条数
+function sanitizeRecords(records) {
+  let fixed = 0;
+  (records || []).forEach(r => {
+    if (!r || typeof r !== 'object') return;
+    if (typeof r.date !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(r.date)) {
+      const nd = normRecDate(r.date);
+      if (nd !== r.date) { r.date = nd; fixed++; }
+    }
+  });
+  return fixed;
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -1493,6 +1525,7 @@ function loadState() {
         customAccounts: data.customAccounts || [],
         isSample: data.isSample !== false,
       };
+      sanitizeRecords(state.records);  // 兼容旧数据里 Excel 序列号日期
     } else {
       generateDemoData();
     }
@@ -3801,8 +3834,7 @@ function parseBillFromRows(rows) {
     } else if (rawAmt.startsWith('-')) {
       type = 'expense';
     }
-    let date = String(c[iDate] || '').slice(0, 10).replace(/\//g, '-');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = fmtDate(new Date());
+    const date = normRecDate(c[iDate]);
     const cat = (iCat >= 0 ? String(c[iCat] || '').trim() : '') || '其他';
     const party = iCounter >= 0 ? String(c[iCounter] || '').trim() : '';
     const goods = iGoods >= 0 ? String(c[iGoods] || '').trim() : '';
@@ -3879,7 +3911,7 @@ function buildRecordsFromRows(rows) {
       id: Date.now() + Math.floor(Math.random() * 1000) + i,
       type, amount: amount, category, subCategory,
       account: acct, accountSub: acctSub,
-      note: note, date: c[0] || fmtDate(new Date()), isSample: false
+      note: note, date: normRecDate(c[0]), isSample: false
     });
   });
   return recs;
@@ -3887,6 +3919,7 @@ function buildRecordsFromRows(rows) {
 
 function applyImported(data) {
   if (!data || !data.records || !Array.isArray(data.records)) throw new Error('格式不对');
+  sanitizeRecords(data.records);  // 修复导入文件中的非标准日期
   state = {
     settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) },
     records: data.records,
@@ -4193,6 +4226,8 @@ async function cloudSyncPull() {
       const cloudData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data;
       const cloudRecords = cloudData.records || [];
       const localRecords = state.records || [];
+      // 清洗云端+本地数据，修复历史导入产生的 Excel 序列号日期
+      const fixedCnt = sanitizeRecords(cloudRecords) + sanitizeRecords(localRecords);
 
       // Merge: combine records, dedup by id
       const merged = [...localRecords];
@@ -4208,6 +4243,7 @@ async function cloudSyncPull() {
         isSample: cloudData.isSample || false,
       };
       saveState();
+      if (fixedCnt > 0) scheduleCloudSync();  // 修复过的数据回写云端
       renderHome();
       renderData();
       showToast('云端数据已同步到本地');
