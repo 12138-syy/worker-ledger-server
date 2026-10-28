@@ -30,13 +30,27 @@ function saveFileDb() {
 }
 
 async function upstash(method, key, value) {
-  const url = `${UPSTASH_URL}/${method}/${encodeURIComponent(key)}` +
-    (value !== undefined ? `/${encodeURIComponent(value)}` : '');
-  const res = await fetch(url, {
+  const url = `${UPSTASH_URL}/${method}/${encodeURIComponent(key)}`;
+  const isWrite = (method === 'set');
+  const opts = {
+    method: isWrite ? 'POST' : 'GET',
     headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-  });
-  const json = await res.json().catch(() => ({}));
-  return json;
+  };
+  if (isWrite && value !== undefined) {
+    // Upstash REST: value passed as the raw request body for POST
+    opts.body = value;
+  }
+  try {
+    const res = await fetch(url, opts);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error('Upstash error:', method, res.status, json);
+    }
+    return json;
+  } catch (e) {
+    console.error('Upstash fetch error:', e);
+    return {};
+  }
 }
 
 // ===== Users =====
