@@ -3758,6 +3758,71 @@ function readFileAs(file, mode) {
   });
 }
 
+// 解析微信 / 支付宝 / 银行导出的真实账单（与“本应用自己导出的文件”格式不同）
+function parseBillFromRows(rows) {
+  if (!rows || !rows.length) return null;
+  // 找到表头行（前 15 行内）
+  let hi = -1;
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    if (rows[i] && rows[i].some(c => /交易时间|交易对方|收\/支|金额\(元\)|交易分类/.test(String(c)))) { hi = i; break; }
+  }
+  if (hi < 0) return null;
+  const h = rows[hi].map(c => String(c).trim());
+  const findIdx = (...kws) => {
+    for (const kw of kws) {
+      const i = h.findIndex(x => x.includes(kw));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iDate = findIdx('交易时间', '时间');
+  const iType = findIdx('收/支', '收支');
+  const iAmt = h.findIndex(x => x.includes('金额') && !x.includes('收/支'));
+  const iCounter = Math.max(findIdx('交易对方'), findIdx('对方'), findIdx('商户'));
+  const iGoods = Math.max(findIdx('商品'), findIdx('说明'), findIdx('备注'));
+  const iPay = Math.max(findIdx('支付方式'), findIdx('付款方式'), findIdx('收/付'));
+  const iCat = findIdx('交易类型', '交易分类');
+  if (iDate < 0 || iAmt < 0) return null;
+  const recs = [];
+  for (let i = hi + 1; i < rows.length; i++) {
+    const c = rows[i];
+    if (!c || c.length < 2) continue;
+    if (c.every(x => !String(x).trim())) continue;
+    const rawAmt = String(c[iAmt] || '').replace(/[^\d.\-]/g, '');
+    let amt = parseFloat(rawAmt);
+    if (isNaN(amt)) continue;
+    amt = Math.abs(amt);
+    let type = 'expense';
+    if (iType >= 0) {
+      const tv = String(c[iType] || '');
+      if (tv.includes('收入')) type = 'income';
+      else if (tv.includes('支出')) type = 'expense';
+      else if (rawAmt.startsWith('-')) type = 'expense';
+    } else if (rawAmt.startsWith('-')) {
+      type = 'expense';
+    }
+    let date = String(c[iDate] || '').slice(0, 10).replace(/\//g, '-');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = fmtDate(new Date());
+    const cat = (iCat >= 0 ? String(c[iCat] || '').trim() : '') || '其他';
+    const party = iCounter >= 0 ? String(c[iCounter] || '').trim() : '';
+    const goods = iGoods >= 0 ? String(c[iGoods] || '').trim() : '';
+    const note = [goods, party].filter(Boolean).join(' / ');
+    const acctRaw = iPay >= 0 ? String(c[iPay] || '').trim() : '';
+    let account = acctRaw, accountSub = '';
+    if (/零钱|微信/.test(acctRaw)) { account = '微信'; }
+    else if (/支付宝/.test(acctRaw)) { account = '支付宝'; }
+    else if (/银行/.test(acctRaw)) { account = '银行卡'; accountSub = acctRaw.replace('信用卡', '').replace('储蓄卡', '').replace('银行卡', '').trim() || acctRaw; }
+    else if (/现金/.test(acctRaw)) { account = '现金'; }
+    recs.push({
+      id: Date.now() + Math.floor(Math.random() * 1000) + i,
+      type, amount: amt, category: cat, subCategory: '',
+      account, accountSub, note,
+      date, isSample: false
+    });
+  }
+  return recs.length ? recs : null;
+}
+
 function parseCSVText(text) {
   const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim() !== '');
   const rows = lines.map(line => {
@@ -3775,12 +3840,16 @@ function parseCSVText(text) {
     }
     out.push(cur); return out;
   });
+  const bill = parseBillFromRows(rows);
+  if (bill) return bill;
   const start = (rows[0] && (rows[0][0] === '日期' || rows[0].some(c => String(c).includes('金额')))) ? 1 : 0;
   return buildRecordsFromRows(rows.slice(start));
 }
 
 function parseSheetRows(rows) {
   if (!rows || !rows.length) return [];
+  const bill = parseBillFromRows(rows);
+  if (bill) return bill;
   const hasHeader = rows[0] && rows[0].some(c => String(c).includes('金额') || String(c).includes('日期'));
   return buildRecordsFromRows(rows.slice(hasHeader ? 1 : 0));
 }
